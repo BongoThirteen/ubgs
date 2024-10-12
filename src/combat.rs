@@ -1,3 +1,4 @@
+use avian3d::prelude::LinearVelocity;
 use valence::entity::living::Health;
 use valence::entity::{EntityStatuses, Velocity};
 use valence::inventory::HeldItem;
@@ -41,7 +42,7 @@ fn handle_combat_event(
         &GameMode,
         &Username,
     )>,
-    mut entities: Query<(Entity, &Position, &mut Velocity, &mut Health, &mut CombatState), Without<Client>>,
+    mut entities: Query<(Entity, &Position, &mut LinearVelocity, &mut Health, &mut CombatState), Without<Client>>,
     mut sprinting: EventReader<SprintEvent>,
     mut interact_entity: EventReader<InteractEntityEvent>,
     mut death: EventWriter<DeathEvent>,
@@ -172,8 +173,7 @@ fn handle_combat_event(
             state.last_attacked_tick = server.current_tick();
 
             let dir = (pos.0.xz() - attacker_pos.0.xz())
-                .normalize()
-                .as_vec2();
+                .normalize();
 
             let knockback_xz = if attacker_state.has_bonus_knockback {
                 18.0
@@ -187,7 +187,7 @@ fn handle_combat_event(
                 6.432
             };
 
-            velocity.0 += Vec3::new(dir.x * knockback_xz, knockback_y, dir.y * knockback_xz);
+            velocity.0 += bevy::math::DVec3::new(dir.x * knockback_xz, knockback_y, dir.y * knockback_xz);
 
             if health.0 > damage {
                 health.0 -= damage;

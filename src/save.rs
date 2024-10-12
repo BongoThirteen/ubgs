@@ -1,6 +1,6 @@
 
-use valence::prelude::*;
-use crate::anvil::{AnvilLevel, AnvilPlugin, ChunkLoadEvent, ChunkLoadStatus};
+use valence::{abilities::PlayerAbilitiesFlags, entity::player::PlayerEntityBundle, inventory::HeldItem, prelude::*};
+use crate::{anvil::{AnvilLevel, AnvilPlugin, ChunkLoadEvent, ChunkLoadStatus}, players::{PlayerData, Xp}};
 
 pub struct Save;
 
@@ -9,7 +9,7 @@ impl Plugin for Save {
         app
             .add_plugins(AnvilPlugin)
             .add_systems(Startup, setup)
-            .add_systems(Update, handle_chunk_loads);
+            .add_systems(Update, (handle_chunk_loads, save_players));
     }
 }
 
@@ -66,5 +66,64 @@ fn handle_chunk_loads(
                 layer.insert_chunk(event.pos, UnloadedChunk::new());
             }
         }
+    }
+}
+
+fn save_players(
+    mut disconnected_clients: RemovedComponents<Client>,
+    players: Query<
+        (
+            &EntityLayerId,
+            &UniqueId,
+            &Position,
+            &Look,
+            &Inventory,
+            &HeldItem,
+            &Xp,
+            &GameMode,
+            &PlayerAbilitiesFlags,
+        )
+    >,
+    mut layers: Query<(&mut AnvilLevel, &ChunkLayer)>,
+) {
+    for disconnected_client in disconnected_clients.read() {
+        let Ok(
+            (
+                layer_id,
+                uuid,
+                position,
+                look,
+                inventory,
+                held,
+                xp,
+                game_mode,
+                flags,
+            )
+        ) = players.get(disconnected_client) else {
+            continue;
+        };
+
+        let Ok((mut anvil, layer)) = layers.get_mut(layer_id.0) else {
+            continue;
+        };
+
+        let dimension = layer.dimension_type_name().to_string_ident();
+
+        let data = PlayerData {
+            inventory: inventory.clone(),
+            game_mode: *game_mode,
+            held_item: held.hotbar_idx(),
+            flying: flags.flying(),
+            xp: *xp,
+            dimension,
+            entity: PlayerEntityBundle {
+                look: *look,
+                position: *position,
+                uuid: *uuid,
+                ..Default::default()
+            },
+        };
+
+        anvil.save_player_data(data);
     }
 }

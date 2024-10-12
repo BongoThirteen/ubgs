@@ -1200,7 +1200,7 @@ fn summoning(
         }
 
         let real_pos = event.position.get_in_direction(event.face);
-        let position = Position(DVec3::new(real_pos.x.into(), real_pos.y.into(), real_pos.z.into()));
+        let position = Position(DVec3::new(real_pos.x as f64 + 0.5, real_pos.y as f64 + 0.5, real_pos.z as f64 + 0.5));
 
         match stack.item {
             ItemKind::BlazeSpawnEgg => { commands.spawn(BlazeEntityBundle { position, layer, ..Default::default() }); }

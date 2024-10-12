@@ -16,7 +16,7 @@ use valence::{ChunkLayer, ChunkPos};
 
 use parsing::{DimensionFolder, ParsedChunk};
 
-use crate::players::{PlayerData, PlayerLoadEvent};
+use crate::players::PlayerData;
 
 mod parsing;
 
@@ -101,38 +101,37 @@ impl AnvilLevel {
         }
     }
 
-    pub fn get_player_data(&mut self, uuid: UniqueId) -> anyhow::Result<()> {
-        if self.loaded_players.contains_key(&uuid) {
-            return Ok(());
+    pub fn get_player_data(&mut self, uuid: UniqueId) -> anyhow::Result<Option<PlayerData>> {
+        if let Some(player) = self.loaded_players.remove(&uuid) {
+            return player;
         }
         let Ok(_) = self.sender.try_send(Message::LoadPlayer(uuid)) else {
             bail!("failed to send message to worker");
         };
-        // loop {
-        //     let res = match self.receiver.try_recv() {
-        //         Ok(res) => res,
-        //         Err(flume::TryRecvError::Empty) => {
-        //             continue;
-        //         }
-        //         Err(flume::TryRecvError::Disconnected) => {
-        //             bail!("worker thread failed");
-        //         }
-        //     };
-        //     match res {
-        //         Response::LoadedChunk(pos, res) => {
-        //             self.loaded_chunks.insert(pos, res);
-        //         }
-        //         Response::LoadedPlayer(loaded_uuid, player) => {
-        //             if loaded_uuid == uuid {
-        //                 return player;
-        //             } else {
-        //                 self.loaded_players.insert(uuid, player);
-        //             }
-        //         }
-        //         Response::Done => {}
-        //     }
-        // }
-        Ok(())
+        loop {
+            let res = match self.receiver.try_recv() {
+                Ok(res) => res,
+                Err(flume::TryRecvError::Empty) => {
+                    continue;
+                }
+                Err(flume::TryRecvError::Disconnected) => {
+                    bail!("worker thread failed");
+                }
+            };
+            match res {
+                Response::LoadedChunk(pos, res) => {
+                    self.loaded_chunks.insert(pos, res);
+                }
+                Response::LoadedPlayer(loaded_uuid, player) => {
+                    if loaded_uuid == uuid {
+                        return player;
+                    } else {
+                        self.loaded_players.insert(uuid, player);
+                    }
+                }
+                Response::Done => {}
+            }
+        }
     }
 
     pub fn save_player_data(&mut self, data: PlayerData) {
@@ -283,7 +282,6 @@ pub fn send_recv_chunks(
     mut layers: Query<(Entity, &mut ChunkLayer, &mut AnvilLevel)>,
     mut to_send: Local<Vec<(Priority, ChunkPos)>>,
     mut chunk_load_events: EventWriter<ChunkLoadEvent>,
-    mut player_load_events: EventWriter<PlayerLoadEvent>,
 ) {
     for (entity, mut layer, anvil) in &mut layers {
         let anvil = anvil.into_inner();
@@ -303,10 +301,6 @@ pub fn send_recv_chunks(
                 pos,
                 status,
             });
-        }
-
-        for (uuid, res) in anvil.loaded_players.drain() {
-            player_load_events.send(PlayerLoadEvent { uuid, data: res });
         }
 
         // Insert the chunks that are finished loading into the chunk layer and send
@@ -332,7 +326,7 @@ pub fn send_recv_chunks(
                     });
                 }
                 Response::LoadedPlayer(uuid, res) => {
-                    player_load_events.send(PlayerLoadEvent { uuid, data: res });
+                    anvil.loaded_players.insert(uuid, res);
                 }
                 Response::Done => {}
             }

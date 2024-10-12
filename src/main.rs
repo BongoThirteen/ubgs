@@ -14,17 +14,18 @@ mod physics;
 mod command;
 mod combat;
 mod death;
+mod worldgen;
 
 use building::Building;
 use players::Players;
 use exit::Exit;
-use save::Save;
 use server_list::ServerList;
 use explosion::Explosion;
 use physics::Physics;
 use command::Command;
 use combat::Combat;
 use death::Death;
+use worldgen::WorldGen;
 
 use valence::prelude::*;
 
@@ -34,7 +35,6 @@ pub fn main() {
     App::new()
         .add_plugins(Building)
         .add_plugins(Players)
-        .add_plugins(Save)
         .add_plugins(ServerList)
         .add_plugins(Explosion)
         .add_plugins(Physics)
@@ -42,6 +42,7 @@ pub fn main() {
         .add_plugins(Command)
         .add_plugins(Combat)
         .add_plugins(Death)
+        .add_plugins(WorldGen)
         .add_plugins(Exit)
         .run();
 }

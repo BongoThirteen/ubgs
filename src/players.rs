@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use valence::client::DisconnectClient;
-use valence::protocol::anyhow;
 use valence::abilities::PlayerAbilitiesFlags;
 use valence::entity::player::PlayerEntityBundle;
 use valence::message::SendMessage;
@@ -10,17 +9,16 @@ use valence::inventory::HeldItem;
 use valence::prelude::*;
 
 use crate::SPAWN_POS;
-use crate::anvil::{autosave, send_recv_chunks, AnvilLevel};
+use crate::anvil::{autosave, AnvilLevel};
 use crate::exit::handle_exit;
 
 pub struct Players;
 
 impl Plugin for Players {
     fn build(&self, app: &mut App) {
-        app.add_event::<PlayerLoadEvent>()
-            .add_systems(
+        app.add_systems(
             Update,
-            (handle_loaded_clients, init_clients.after(handle_loaded_clients), despawn_disconnected_clients, save_players.after(send_recv_chunks)),
+            (handle_loaded_clients, despawn_disconnected_clients),
         ).add_systems(Update, disconnect_on_shutdown.after(handle_exit).before(autosave));
     }
 }
@@ -42,14 +40,8 @@ pub struct PlayerData {
     pub dimension: Ident<String>,
 }
 
-#[derive(Event, Debug)]
-pub struct PlayerLoadEvent {
-    pub uuid: UniqueId,
-    pub data: anyhow::Result<Option<PlayerData>>,
-}
-
+#[allow(dead_code)]
 fn init_clients(
-    server: Res<Server>,
     mut clients: Query<
         (
             Entity,
@@ -87,13 +79,10 @@ fn init_clients(
         visible_entity_layers.0.insert(layer);
         *inventory = Inventory::new(InventoryKind::Player);
         let _ = overworld.get_player_data(uuid);
-        tracing::info!(tick=server.current_tick())
     }
 }
 
 fn handle_loaded_clients(
-    server: Res<Server>,
-    uuids: Query<(Entity, &UniqueId), With<Client>>,
     mut clients: Query<
         (
             Entity,
@@ -108,48 +97,51 @@ fn handle_loaded_clients(
             &mut GameMode,
             &mut PlayerAbilitiesFlags,
             &Username,
+            &UniqueId,
         ),
+        Added<Client>,
     >,
-    mut events: EventReader<PlayerLoadEvent>,
     layers: Query<(Entity, &ChunkLayer)>,
+    mut anvils: Query<&mut AnvilLevel>,
     mut commands: Commands,
 ) {
-    for event in events.read() {
-        let Some((entity, _)) = uuids
-            .iter()
-            .find(|(_, uuid)| **uuid == event.uuid) else {
-                tracing::warn!("couldn't find uuid");
-                continue;
-        };
-
-        let Ok(
-            (
-                entity,
-                mut client,
-                mut layer_id,
-                mut visible_chunk_layer,
-                mut visible_entity_layers,
-                mut pos,
-                mut look,
-                mut inventory,
-                mut held_item,
-                mut game_mode,
-                mut flags,
-                _username,
-            )
-        ) = clients.get_mut(entity) else {
-            tracing::warn!("couldn't find client");
-            continue;
-        };
+    for (
+        entity,
+        mut client,
+        mut layer_id,
+        mut visible_chunk_layer,
+        mut visible_entity_layers,
+        mut pos,
+        mut look,
+        mut inventory,
+        mut held_item,
+        mut game_mode,
+        mut flags,
+        _username,
+        &uuid,
+    ) in &mut clients {
 
         // let spawn_pos = (0..384)
         //     .rev()
         //     .map(|y| DVec3::new(SPAWN_POS.x, y as f64, SPAWN_POS.y))
         //     .find(|&pos| chunks.block(pos).is_some_and(|b| b.state == BlockState::AIR))
         //     .unwrap();
+        let Some((overworld, _)) = layers
+            .iter()
+            .find(|(_, l)| l.dimension_type_name() == ident!("overworld")) else {
+            commands.add(DisconnectClient {
+                client: entity,
+                reason: "Could not find dimension `minecraft:overworld`".color(Color::RED),
+            });
+            continue;
+        };
         
-        match event.data {
-            Ok(Some(ref saved)) => {
+        match anvils
+            .get_mut(overworld)
+            .map(|mut anvil| anvil.get_player_data(uuid))
+            .unwrap_or(Ok(None))
+        {
+            Ok(Some(saved)) => {
                 let Some((layer, _)) = layers.iter().find(|(_, l)| l.dimension_type_name() == saved.dimension) else {
                     commands.add(DisconnectClient {
                         client: entity,
@@ -170,7 +162,6 @@ fn handle_loaded_clients(
                 flags.set_flying(saved.flying);
                 *look = saved.entity.look;
                 commands.entity(entity).insert(saved.xp);
-                tracing::info!(tick=server.current_tick())
             }
             Ok(None) => {
                 let Some((layer, _)) = layers.iter().find(|(_, l)| l.dimension_type_name() == ident!("overworld")) else {
@@ -211,7 +202,7 @@ fn handle_loaded_clients(
         
                 client.send_chat_message(message);
             }
-            Err(ref err) => {
+            Err(err) => {
                 tracing::warn!("failed to load player data: {err:?}");
                 let Some((layer, _)) = layers.iter().find(|(_, l)| l.dimension_type_name() == ident!("overworld")) else {
                     commands.add(DisconnectClient {
@@ -234,64 +225,6 @@ fn handle_loaded_clients(
     }
 }
 
-fn save_players(
-    mut disconnected_clients: RemovedComponents<Client>,
-    players: Query<
-        (
-            &EntityLayerId,
-            &UniqueId,
-            &Position,
-            &Look,
-            &Inventory,
-            &HeldItem,
-            &Xp,
-            &GameMode,
-            &PlayerAbilitiesFlags,
-        )
-    >,
-    mut layers: Query<(&mut AnvilLevel, &ChunkLayer)>,
-) {
-    for disconnected_client in disconnected_clients.read() {
-        let Ok(
-            (
-                layer_id,
-                uuid,
-                position,
-                look,
-                inventory,
-                held,
-                xp,
-                game_mode,
-                flags,
-            )
-        ) = players.get(disconnected_client) else {
-            continue;
-        };
-
-        let Ok((mut anvil, layer)) = layers.get_mut(layer_id.0) else {
-            continue;
-        };
-
-        let dimension = layer.dimension_type_name().to_string_ident();
-
-        let data = PlayerData {
-            inventory: inventory.clone(),
-            game_mode: *game_mode,
-            held_item: held.hotbar_idx(),
-            flying: flags.flying(),
-            xp: *xp,
-            dimension,
-            entity: PlayerEntityBundle {
-                look: *look,
-                position: *position,
-                uuid: *uuid,
-                ..Default::default()
-            },
-        };
-
-        anvil.save_player_data(data);
-    }
-}
 
 // fn save_player_data(
 //     mut disconnected_clients: RemovedComponents<Client>,
