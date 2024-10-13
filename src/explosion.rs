@@ -88,17 +88,47 @@ fn explode(
 ) {
     let mut layer = layers.single_mut();
 
+    // for event in events.read() {
+    //     for dy in -3..=3 {
+    //         for dz in -3..=3 {
+    //             for dx in -3..=3 {
+    //                 let pos = BlockPos {
+    //                     x: event.position.x as i32 + dx,
+    //                     y: event.position.y as i32 + dy,
+    //                     z: event.position.z as i32 + dz,
+    //                 };
+    //                 layer.set_block(pos, BlockState::AIR);
+    //             }
+    //         }
+    //     }
+    // }
+
     for event in events.read() {
-        for dx in -3..=3 {
-            for dy in -3..=3 {
-                for dz in -3..=3 {
-                    let pos = BlockPos {
-                        x: event.position.x as i32 + dx,
-                        y: event.position.y as i32 + dy,
-                        z: event.position.z as i32 + dz,
-                    };
-                    layer.set_block(pos, BlockState::AIR);
+    
+        let points = (0..15)
+            .flat_map(|x| (0..15).map(move |y| DVec3::new(-1.0 + x as f64 / 8.0, -1.0 + y as f64 / 8.0, 1.0)))
+            .chain((0..15).flat_map(|z| (0..15).map(move |y| DVec3::new(1.0, -1.0 + y as f64 * 8.0, -1.0 + z as f64 / 8.0))))
+            .chain((0..15).flat_map(|x| (0..15).map(move |y| DVec3::new(-1.0 + x as f64 / 8.0, -1.0 + y as f64 / 8.0, -1.0))))
+            .chain((0..15).flat_map(|z| (0..15).map(move |y| DVec3::new(-1.0, -1.0 + y as f64 / 8.0, -1.0 + z as f64 / 8.0))))
+            .chain((0..16).flat_map(|z| (0..16).map(move |x| DVec3::new(-1.0 + x as f64 / 8.0, 1.0, -1.0 + z as f64 / 8.0))))
+            .chain((0..16).flat_map(|z| (1..14).map(move |x| DVec3::new(-1.0 + x as f64 / 8.0, -1.0, -1.0 + z as f64 / 8.0))))
+            .map(|ray| ray.normalize());
+
+        for point in points {
+            let mut dist = 0.0;
+            let mut power = 4.0;
+            while power > 0.0 {
+                let pos = point * dist + event.position;
+                if let Some(block) = layer.block([pos.x as i32, pos.y as i32, pos.z as i32]) {
+                    if block.state != BlockState::AIR {
+                        power -= (0.5 + 0.3) * 0.3;
+                        if power > 0.0 {
+                            layer.set_block([pos.x as i32, pos.y as i32, pos.z as i32], BlockState::AIR);
+                        }
+                    }
+                    power -= 0.22500001;
                 }
+                dist += 0.3;
             }
         }
     }

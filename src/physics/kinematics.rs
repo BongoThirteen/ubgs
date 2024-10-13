@@ -380,9 +380,9 @@ fn land(
         commands.entity(entity).insert(Despawned);
 
         let block_pos = BlockPos {
-            x: position.0.x.round() as i32,
-            y: position.0.y.round() as i32,
-            z: position.0.z.round() as i32,
+            x: position.0.x.floor() as i32,
+            y: position.0.y.floor() as i32,
+            z: position.0.z.floor() as i32,
         };
 
         layer.set_block(block_pos, block);

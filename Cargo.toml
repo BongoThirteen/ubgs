@@ -1,5 +1,6 @@
 [package]
-name = "building-test"
+name = "ubgs"
+description = "An Unnamed Block Game Server"
 version = "0.1.0"
 edition = "2021"
 
