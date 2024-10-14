@@ -11,7 +11,6 @@ pub struct Perf;
 impl Plugin for Perf {
     fn build(&self, app: &mut App) {
         app
-            .add_plugins(TimePlugin)
             .insert_resource(PrintTimer::new())
             .insert_resource(TickTimer(Instant::now()))
             .add_systems(PreUpdate, performance_pre)

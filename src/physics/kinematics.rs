@@ -1,203 +1,122 @@
-use avian3d::math::Matrix3;
-use bevy::asset::Assets;
-use bevy::render::mesh::Mesh;
-use bevy::scene::SceneSpawner;
-use bevy::transform::bundles::TransformBundle;
-use bevy::transform::components::Transform;
-use bevy_time::Time;
 use valence::entity::falling_block::FallingBlockEntity;
 use valence::entity::ObjectData;
 use valence::entity::{entity::NoGravity, OnGround, Velocity};
-use valence::math::{Aabb, IVec3};
+use valence::math::Aabb;
 use valence::prelude::*;
 use valence::prelude::Position;
-
-use avian3d::prelude::*;
-
-use crate::block_update::BlockUpdateEvent;
 
 pub struct Kinematics;
 
 impl Plugin for Kinematics {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Assets<Mesh>>()
-            .init_resource::<SceneSpawner>()
-            // .insert_resource(Gravity(bevy::math::DVec3::NEG_Y * 100.0))
-            .insert_resource(Time::<Physics>::default().with_relative_speed(5.0))
-            // .insert_resource(SubstepCount(1000))
-            .add_plugins(PhysicsPlugins::new(Update))
-            .add_systems(
+        app.add_systems(
                 Update,
                 (
-                    generate_colliders,
-                    cleanup_colliders,
-                    delete_colliders,
-                    init_entities,
-                    update_entities,
-                    (land, reset_on_ground, handle_collisions).chain(),
+                    collide.before(update),
+                    update,
+                    gravity,
+                    land,
                 ),
             );
     }
 }
 
-fn init_entities(
-    entities: Query<(Entity, &Position, &HitboxShape), (Changed<HitboxShape>, Without<Client>)>,
-    mut commands: Commands,
-) {
-    for (entity, position, hitbox) in &entities {
-        let (min, max) = (hitbox.get().min(), hitbox.get().max());
-        commands.entity(entity).insert((
-            Mass(1.0),
-            Inertia(Matrix3::IDENTITY),
-            RigidBody::Dynamic,
-            TransformBundle::from_transform(Transform::from_xyz(position.0.x as f32, position.0.y as f32, position.0.z as f32)),
-            Collider::cuboid(max.x - min.x, max.y - min.y, max.z - min.z),
-            LockedAxes::new().lock_rotation_x().lock_rotation_y().lock_rotation_z(),
-            Restitution::new(0.0),
-        ));
-    }
-}
-
-fn update_entities(
-    mut entities: Query<(&mut Position, &mut Velocity, &avian3d::position::Position, &LinearVelocity, &Hitbox)>,
-) {
-    for (mut pos, mut velocity, transform, linear, hitbox) in &mut entities {
-        let hitbox_pos = hitbox.min() / 2.0 + hitbox.max() / 2.0 - pos.0;
-        pos.0 = DVec3::new(
-            transform.0.x - hitbox_pos.x,
-            transform.0.y - hitbox_pos.y,
-            transform.0.z - hitbox_pos.z,
-        );
-        velocity.0 = Vec3::new(
-            linear.0.x as f32,
-            linear.0.y as f32,
-            linear.0.z as f32,
-        );
-    }
-}
-
-fn cleanup_colliders(
-    colliders: Query<(Entity, &ColliderAabb), Without<Hitbox>>,
-    entities: Query<&Position, With<Hitbox>>,
-    mut commands: Commands,
-) {
-    let mut n = 0;
-    let mut collider_positions = Vec::new();
-    for (entity, collider) in &colliders {
-        n += 1;
-        let pos = DVec3::new(collider.center().x, collider.center().y, collider.center().z);
-        let block_pos = BlockPos {
-            x: pos.x as i32,
-            y: pos.y as i32,
-            z: pos.z as i32,
-        };
-        if !entities.iter().any(|p| p.distance_squared(pos) < 25.0) || collider_positions.contains(&block_pos) {
-            commands.entity(entity).despawn();
-        } else {
-            collider_positions.push(block_pos);
-        }
-    }
-    tracing::debug!("Collider count: {n}");
-}
-
-fn delete_colliders(
-    mut events: EventReader<BlockUpdateEvent>,
+fn collide(
+    mut entities: Query<(
+        &mut OnGround,
+        &mut Position,
+        &mut Velocity,
+        &EntityLayerId,
+        &Hitbox,
+    ), Without<Client>>,
     layers: Query<&ChunkLayer>,
-    colliders: Query<(Entity, &ColliderAabb), Without<Hitbox>>,
-    mut commands: Commands,
 ) {
-    for event in events.read() {
-        if let Ok(layer) = layers.get(event.layer) {
-            if !layer.block(event.position).is_some_and(|b| b.state.collision_shapes().len() > 0) {
-                for (collider, _) in colliders.iter().filter(|(_, c)| c.center().x as i32 == event.position.x && c.center().y as i32 == event.position.y && c.center().z as i32 == event.position.z) {
-                    commands.entity(collider).despawn();
-                }
-            }
-        }
-    }
-}
-
-fn generate_colliders(
-    entities: Query<(&Position, &OldPosition, &EntityLayerId), (Changed<Position>, With<Hitbox>)>,
-    colliders: Query<&ColliderAabb>,
-    layers: Query<&ChunkLayer>,
-    mut commands: Commands,
-) {
-    let mut collider_positions = colliders.iter().map(|c| BlockPos {
-        x: c.center().x as i32,
-        y: c.center().y as i32,
-        z: c.center().z as i32,
-    }).collect::<Vec<_>>();
-
-    for (pos, old_pos, layer_id) in &entities {
-        if pos.x as i32 == old_pos.x as i32
-            && pos.y as i32 == old_pos.y as i32
-            && pos.z as i32 == old_pos.z as i32
-        {
-            continue;
-        }
-
+    for (
+        mut on_ground,
+        mut position,
+        mut velocity,
+        layer_id,
+        hitbox,
+    ) in &mut entities {
         let Ok(layer) = layers.get(layer_id.0) else {
             continue;
         };
 
-        let block_pos = IVec3::new(
-            pos.x as i32,
-            pos.y as i32,
-            pos.z as i32,
-        );
+        let colliders = {
+            let position = *position;
+            (-1..=1)
+                .flat_map(move |y| {
+                    (-1..=1).flat_map(move |z| {
+                        (-1..=1).flat_map(move |x| {
+                            let block_pos = BlockPos {
+                                x: position.0.x.floor() as i32 + x,
+                                y: position.0.y.floor() as i32 + y,
+                                z: position.0.z.floor() as i32 + z,
+                            };
+                            layer.block(block_pos).into_iter().flat_map(move |b| {
+                                b.state.collision_shapes().map(move |c| {
+                                    c + DVec3::new(
+                                        (position.0.x.floor() as i32 + x) as f64,
+                                        (position.0.y.floor() as i32 + y) as f64,
+                                        (position.0.z.floor() as i32 + z) as f64,
+                                    )
+                                })
+                            })
+                        })
+                    })
+                })
+                .collect::<Vec<Aabb>>()
+        };
 
-        let positions = (-2..=2)
-            .flat_map(|y| (-2..=2).flat_map(move |z| (-2..=2).map(move |x| BlockPos { x, y, z })))
-            .map(|pos| pos + block_pos)
-            .filter(|pos| !collider_positions.contains(pos))
-            .collect::<Vec<_>>();
+        const STEP_COUNT: u32 = 16;
 
-        let blocks = positions
-            .iter()
-            .filter_map(|pos| layer.block(*pos).map(|b| (b.state, *pos)))
-            .flat_map(|(block, pos)| block.collision_shapes().map(move |s| (s, pos)))
-            .map(|(shape, pos)| (
-                RigidBody::Static,
-                Collider::cuboid(
-                    shape.max().x - shape.min().x - 0.02,
-                    shape.max().y - shape.min().y - 0.02,
-                    shape.max().z - shape.min().z - 0.02,
-                ),
-                Restitution::new(0.0),
-                TransformBundle::from_transform(Transform::from_xyz(pos.x as f32 + 0.5, pos.y as f32 + 0.5, pos.z as f32 + 0.5)),
-            )).collect::<Vec<_>>();
+        on_ground.0 = false;
 
-        commands.spawn_batch(blocks);
+        let mut step_offset = DVec3::ZERO;
+        let mut new_offset = DVec3::ZERO;
+        for _ in 0..STEP_COUNT {
+            step_offset += velocity.0.as_dvec3() / (20.0 * STEP_COUNT as f64);
+            new_offset = offset(hitbox.get(), &colliders, step_offset);
 
-        collider_positions.extend(positions);
+            if new_offset.x != step_offset.x {
+                velocity.x = 0.0;
+            }
+            if new_offset.y != step_offset.y {
+                velocity.y = 0.0;
+                on_ground.0 = true;
+            }
+            if new_offset.z != step_offset.z {
+                velocity.z = 0.0;
+            }
+        }
+
+        position.0 += new_offset;
     }
 }
 
-fn handle_collisions(
-    mut events: EventReader<Collision>,
-    mut entities: Query<&mut OnGround>,
-    colliders: Query<(), (With<Collider>, Without<Hitbox>)>,
-    mut commands: Commands,
-) {
-    let mut n = 0;
-    for Collision(contacts) in events.read() {
-        n += 1;
-        if let Ok(mut on_ground) = entities.get_mut(contacts.entity1) {
-            on_ground.0 = true;
-        } else if let Ok(mut on_ground) = entities.get_mut(contacts.entity2) {
-            on_ground.0 = true;
-        } else if colliders.get(contacts.entity1).is_ok() && colliders.get(contacts.entity2).is_ok() {
-            commands.entity(contacts.entity2).insert(Despawned);
+fn offset(a: Aabb, bs: &[Aabb], mut offset: DVec3) -> DVec3 {
+    for b in bs {
+        if offset.y > 0.0 && (a + offset * DVec3::Y).intersects(*b) {
+            offset.y = offset.y.min(b.min().y - a.max().y);
+        } else if offset.y < 0.0 && (a + offset * DVec3::Y).intersects(*b) {
+            offset.y = offset.y.max(b.max().y - a.min().y);
         }
     }
-    tracing::debug!("{n} collisions");
-}
-
-fn reset_on_ground(mut entities: Query<&mut OnGround>) {
-    for mut on_ground in &mut entities {
-        on_ground.0 = false;
+    for b in bs {
+        if offset.x > 0.0 && (a + offset * DVec3::X).intersects(*b) {
+            offset.x = offset.x.min(b.min().x - a.max().x);
+        } else if offset.x > 0.0 && (a + offset * DVec3::X).intersects(*b) {
+            offset.x = offset.x.max(b.max().x - a.min().x);
+        }
     }
+    for b in bs {
+        if offset.z > 0.0 && (a + offset * DVec3::Z).intersects(*b) {
+            offset.z = offset.z.min(b.min().z - a.max().z);
+        } else if offset.z > 0.0 && (a + offset * DVec3::Z).intersects(*b) {
+            offset.z = offset.z.max(b.max().z - a.min().z);
+        }
+    }
+    offset
 }
 
 #[allow(dead_code)]
@@ -209,7 +128,7 @@ fn ground(
         &OldPosition,
         &EntityLayerId,
         &Hitbox,
-    )>,
+    ), Without<Client>>,
     layers: Query<&ChunkLayer>,
 ) {
     for (mut on_ground, mut position, mut velocity, old_position, layer_id, hitbox) in &mut entities
@@ -233,7 +152,7 @@ fn ground(
                                 b.state.collision_shapes().map(move |c| {
                                     c + DVec3::new(
                                         position.0.x + x as f64,
-                                        position.0.y + y as f64 + 1.0,
+                                        position.0.y + y as f64,
                                         position.0.z + z as f64,
                                     )
                                 })
@@ -261,14 +180,12 @@ fn ground(
     }
 }
 
-#[allow(dead_code)]
-fn update(mut entities: Query<(&mut Position, &Velocity)>) {
+fn update(mut entities: Query<(&mut Position, &Velocity), Without<Client>>) {
     for (mut position, velocity) in &mut entities {
         position.0 += DVec3::from(velocity.0 / 20.);
     }
 }
 
-#[allow(dead_code)]
 fn gravity(
     mut entities: Query<(&mut Velocity, &OnGround, &NoGravity, &EntityKind), Without<Client>>,
 ) {
