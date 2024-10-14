@@ -40,6 +40,12 @@ impl Plugin for Kinematics {
     }
 }
 
+#[derive(PhysicsLayer)]
+enum CollisionLayer {
+    Block,
+    Entity,
+}
+
 fn init_entities(
     entities: Query<(Entity, &Position, &HitboxShape), (Changed<HitboxShape>, Without<Client>)>,
     mut commands: Commands,
@@ -54,6 +60,7 @@ fn init_entities(
             Collider::cuboid(max.x - min.x, max.y - min.y, max.z - min.z),
             LockedAxes::new().lock_rotation_x().lock_rotation_y().lock_rotation_z(),
             Restitution::new(0.0),
+            CollisionLayers::new(CollisionLayer::Entity, CollisionLayer::Block),
         ));
     }
 }
@@ -91,7 +98,7 @@ fn cleanup_colliders(
             y: pos.y as i32,
             z: pos.z as i32,
         };
-        if !entities.iter().any(|p| p.distance_squared(pos) < 25.0) || collider_positions.contains(&block_pos) {
+        if !entities.iter().any(|p| p.distance_squared(pos) < 100.0) || collider_positions.contains(&block_pos) {
             commands.entity(entity).despawn();
         } else {
             collider_positions.push(block_pos);
@@ -147,8 +154,8 @@ fn generate_colliders(
             pos.z as i32,
         );
 
-        let positions = (-2..=2)
-            .flat_map(|y| (-2..=2).flat_map(move |z| (-2..=2).map(move |x| BlockPos { x, y, z })))
+        let positions = (-5..=5)
+            .flat_map(|y| (-5..=5).flat_map(move |z| (-2..=2).map(move |x| BlockPos { x, y, z })))
             .map(|pos| pos + block_pos)
             .filter(|pos| !collider_positions.contains(pos))
             .collect::<Vec<_>>();
@@ -166,6 +173,7 @@ fn generate_colliders(
                 ),
                 Restitution::new(0.0),
                 TransformBundle::from_transform(Transform::from_xyz(pos.x as f32 + 0.5, pos.y as f32 + 0.5, pos.z as f32 + 0.5)),
+                CollisionLayers::new(CollisionLayer::Block, CollisionLayer::Entity),
             )).collect::<Vec<_>>();
 
         commands.spawn_batch(blocks);
