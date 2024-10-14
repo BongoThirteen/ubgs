@@ -1,10 +1,8 @@
-use avian3d::math::Matrix3;
 use bevy::asset::Assets;
 use bevy::render::mesh::Mesh;
 use bevy::scene::SceneSpawner;
 use bevy::transform::bundles::TransformBundle;
 use bevy::transform::components::Transform;
-use bevy_time::Time;
 use valence::entity::falling_block::FallingBlockEntity;
 use valence::entity::ObjectData;
 use valence::entity::{entity::NoGravity, OnGround, Velocity};
@@ -12,7 +10,7 @@ use valence::math::{Aabb, IVec3};
 use valence::prelude::*;
 use valence::prelude::Position;
 
-use avian3d::prelude::*;
+use bevy_rapier3d::prelude::*;
 
 use crate::block_update::BlockUpdateEvent;
 
@@ -22,10 +20,7 @@ impl Plugin for Kinematics {
     fn build(&self, app: &mut App) {
         app.init_resource::<Assets<Mesh>>()
             .init_resource::<SceneSpawner>()
-            // .insert_resource(Gravity(bevy::math::DVec3::NEG_Y * 100.0))
-            .insert_resource(Time::<Physics>::default().with_relative_speed(5.0))
-            // .insert_resource(SubstepCount(1000))
-            .add_plugins(PhysicsPlugins::new(Update))
+            .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
             .add_systems(
                 Update,
                 (
@@ -47,37 +42,37 @@ fn init_entities(
     for (entity, position, hitbox) in &entities {
         let (min, max) = (hitbox.get().min(), hitbox.get().max());
         commands.entity(entity).insert((
-            Mass(1.0),
-            Inertia(Matrix3::IDENTITY),
             RigidBody::Dynamic,
-            TransformBundle::from_transform(Transform::from_xyz(position.0.x as f32, position.0.y as f32, position.0.z as f32)),
-            Collider::cuboid(max.x - min.x, max.y - min.y, max.z - min.z),
-            LockedAxes::new().lock_rotation_x().lock_rotation_y().lock_rotation_z(),
+            TransformBundle::from_transform(Transform::from_xyz(position.0.x as f32, position.0.y as f32 + 10.0, position.0.z as f32)),
+            Collider::cuboid((max.x - min.x) as f32 / 2.0, (max.y - min.y) as f32 / 2.0, (max.z - min.z) as f32 / 2.0),
             Restitution::new(0.0),
         ));
     }
 }
 
 fn update_entities(
-    mut entities: Query<(&mut Position, &mut Velocity, &avian3d::position::Position, &LinearVelocity, &Hitbox)>,
+    mut entities: Query<(&mut Position, &mut Velocity, &Transform, &bevy_rapier3d::dynamics::Velocity, &Hitbox)>,
 ) {
+    let mut n = 0;
     for (mut pos, mut velocity, transform, linear, hitbox) in &mut entities {
+        n += 1;
         let hitbox_pos = hitbox.min() / 2.0 + hitbox.max() / 2.0 - pos.0;
         pos.0 = DVec3::new(
-            transform.0.x - hitbox_pos.x,
-            transform.0.y - hitbox_pos.y,
-            transform.0.z - hitbox_pos.z,
+            transform.translation.x as f64 - hitbox_pos.x,
+            transform.translation.y as f64 - hitbox_pos.y,
+            transform.translation.z as f64 - hitbox_pos.z,
         );
         velocity.0 = Vec3::new(
-            linear.0.x as f32,
-            linear.0.y as f32,
-            linear.0.z as f32,
+            linear.linvel.x,
+            linear.linvel.y,
+            linear.linvel.z,
         );
     }
+    tracing::debug!("Updated {n} entities");
 }
 
 fn cleanup_colliders(
-    colliders: Query<(Entity, &ColliderAabb), Without<Hitbox>>,
+    colliders: Query<(Entity, &Transform), Without<Hitbox>>,
     entities: Query<&Position, With<Hitbox>>,
     mut commands: Commands,
 ) {
@@ -85,7 +80,7 @@ fn cleanup_colliders(
     let mut collider_positions = Vec::new();
     for (entity, collider) in &colliders {
         n += 1;
-        let pos = DVec3::new(collider.center().x, collider.center().y, collider.center().z);
+        let pos = Vec3::new(collider.translation.x, collider.translation.y, collider.translation.z).as_dvec3();
         let block_pos = BlockPos {
             x: pos.x as i32,
             y: pos.y as i32,
@@ -103,13 +98,13 @@ fn cleanup_colliders(
 fn delete_colliders(
     mut events: EventReader<BlockUpdateEvent>,
     layers: Query<&ChunkLayer>,
-    colliders: Query<(Entity, &ColliderAabb), Without<Hitbox>>,
+    colliders: Query<(Entity, &Transform), Without<Hitbox>>,
     mut commands: Commands,
 ) {
     for event in events.read() {
         if let Ok(layer) = layers.get(event.layer) {
             if !layer.block(event.position).is_some_and(|b| b.state.collision_shapes().len() > 0) {
-                for (collider, _) in colliders.iter().filter(|(_, c)| c.center().x as i32 == event.position.x && c.center().y as i32 == event.position.y && c.center().z as i32 == event.position.z) {
+                for (collider, _) in colliders.iter().filter(|(_, c)| c.translation.x as i32 == event.position.x && c.translation.y as i32 == event.position.y && c.translation.z as i32 == event.position.z) {
                     commands.entity(collider).despawn();
                 }
             }
@@ -119,14 +114,14 @@ fn delete_colliders(
 
 fn generate_colliders(
     entities: Query<(&Position, &OldPosition, &EntityLayerId), (Changed<Position>, With<Hitbox>)>,
-    colliders: Query<&ColliderAabb>,
+    colliders: Query<&Transform>,
     layers: Query<&ChunkLayer>,
     mut commands: Commands,
 ) {
     let mut collider_positions = colliders.iter().map(|c| BlockPos {
-        x: c.center().x as i32,
-        y: c.center().y as i32,
-        z: c.center().z as i32,
+        x: c.translation.x as i32,
+        y: c.translation.y as i32,
+        z: c.translation.z as i32,
     }).collect::<Vec<_>>();
 
     for (pos, old_pos, layer_id) in &entities {
@@ -158,11 +153,11 @@ fn generate_colliders(
             .filter_map(|pos| layer.block(*pos).map(|b| (b.state, *pos)))
             .flat_map(|(block, pos)| block.collision_shapes().map(move |s| (s, pos)))
             .map(|(shape, pos)| (
-                RigidBody::Static,
+                RigidBody::Fixed,
                 Collider::cuboid(
-                    shape.max().x - shape.min().x - 0.02,
-                    shape.max().y - shape.min().y - 0.02,
-                    shape.max().z - shape.min().z - 0.02,
+                    (shape.max().x - shape.min().x) as f32 / 2.0 - 0.02,
+                    (shape.max().y - shape.min().y) as f32 / 2.0 - 0.02,
+                    (shape.max().z - shape.min().z) as f32 / 2.0 - 0.02,
                 ),
                 Restitution::new(0.0),
                 TransformBundle::from_transform(Transform::from_xyz(pos.x as f32 + 0.5, pos.y as f32 + 0.5, pos.z as f32 + 0.5)),
@@ -175,20 +170,22 @@ fn generate_colliders(
 }
 
 fn handle_collisions(
-    mut events: EventReader<Collision>,
+    mut events: EventReader<CollisionEvent>,
     mut entities: Query<&mut OnGround>,
     colliders: Query<(), (With<Collider>, Without<Hitbox>)>,
     mut commands: Commands,
 ) {
     let mut n = 0;
-    for Collision(contacts) in events.read() {
-        n += 1;
-        if let Ok(mut on_ground) = entities.get_mut(contacts.entity1) {
-            on_ground.0 = true;
-        } else if let Ok(mut on_ground) = entities.get_mut(contacts.entity2) {
-            on_ground.0 = true;
-        } else if colliders.get(contacts.entity1).is_ok() && colliders.get(contacts.entity2).is_ok() {
-            commands.entity(contacts.entity2).insert(Despawned);
+    for event in events.read() {
+        if let &CollisionEvent::Started(entity1, entity2, _flags) = event {
+            n += 1;
+            if let Ok(mut on_ground) = entities.get_mut(entity1) {
+                on_ground.0 = true;
+            } else if let Ok(mut on_ground) = entities.get_mut(entity2) {
+                on_ground.0 = true;
+            } else if colliders.get(entity1).is_ok() && colliders.get(entity2).is_ok() {
+                commands.entity(entity2).despawn();
+            }
         }
     }
     tracing::debug!("{n} collisions");

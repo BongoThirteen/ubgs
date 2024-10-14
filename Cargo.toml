@@ -7,8 +7,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-avian3d = { version = "0.1.2", features = ["3d", "f64", "parry-f64", "parallel"], default-features = false }
 bevy = "0.14.2"
+bevy_rapier3d = "0.27.0"
 bevy_time = "0.14.2"
 ctrlc = { version = "3.4.5", features = ["termination"] }
 flate2 = "1.0.34"

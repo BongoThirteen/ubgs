@@ -1,9 +1,6 @@
 
-use avian3d::collision::Collider;
-use avian3d::position;
-use avian3d::prelude::LinearVelocity;
-use avian3d::spatial_query::{RayCaster, RayHits};
-use bevy::math::Dir3;
+use bevy::transform::components::Transform;
+use bevy_rapier3d::geometry::Collider;
 use valence::entity::tnt::{Fuse, TntEntityBundle};
 use valence::entity::Velocity;
 use valence::interact_block::InteractBlockEvent;
@@ -20,7 +17,7 @@ impl Plugin for Explosion {
     fn build(&self, app: &mut App) {
         app
             .add_event::<ExplosionEvent>()
-            .add_systems(Update, (explode, knockback))
+            .add_systems(Update, explode)
             .add_systems(Update, (ignite, fuse).before(explode));
     }
 }
@@ -108,7 +105,7 @@ struct ExplosionKnockback(f64);
 fn explode(
     mut events: EventReader<ExplosionEvent>,
     mut layers: Query<&mut ChunkLayer>,
-    colliders: Query<(Entity, &position::Position), (With<Collider>, Without<Hitbox>)>,
+    colliders: Query<(Entity, &Transform), (With<Collider>, Without<Hitbox>)>,
     mut commands: Commands,
 ) {
     // for event in events.read() {
@@ -142,12 +139,12 @@ fn explode(
             .map(|ray| ray.normalize());
 
         for point in points {
-            commands.spawn(
-                (
-                    RayCaster::new(bevy::math::DVec3::new(event.position.x, event.position.y, event.position.z), Dir3::from_xyz(point.x as f32, point.y as f32, point.z as f32).unwrap()).with_max_time_of_impact(10.0),
-                    ExplosionKnockback(4.0),
-                )
-            );
+            // commands.spawn(
+            //     (
+            //         RayCaster::new(bevy::math::DVec3::new(event.position.x, event.position.y, event.position.z), Dir3::from_xyz(point.x as f32, point.y as f32, point.z as f32).unwrap()).with_max_time_of_impact(10.0),
+            //         ExplosionKnockback(4.0),
+            //     )
+            // );
             let mut dist = 0.0;
             let mut power = 4.0;
             while power > 0.0 {
@@ -166,11 +163,11 @@ fn explode(
                                 });
                             }
                             layer.set_block([pos.x as i32, pos.y as i32, pos.z as i32], BlockState::AIR);
-                            if let Some((collider, _)) = colliders.iter().find(|(_, pos)| pos.x as i32 == event.position.x as i32
-                                && pos.y as i32 == event.position.y as i32
-                                && pos.z as i32 == event.position.z as i32)
+                            if let Some((collider, _)) = colliders.iter().find(|(_, pos)| pos.translation.x as i32 == event.position.x as i32
+                                && pos.translation.y as i32 == event.position.y as i32
+                                && pos.translation.z as i32 == event.position.z as i32)
                             {
-                                commands.entity(collider).insert(Despawned);
+                                commands.entity(collider).despawn();
                             }
                         }
                     }
@@ -182,15 +179,15 @@ fn explode(
     }
 }
 
-fn knockback(
-    hits: Query<(&RayCaster, &RayHits, &ExplosionKnockback)>,
-    mut entities: Query<&mut LinearVelocity>,
-) {
-    for (ray, hits, knockback) in &hits {
-        for hit in hits.iter() {
-            if let Ok(mut linear) = entities.get_mut(hit.entity) {
-                linear.0 += ray.direction.as_dvec3() / (hit.time_of_impact + 1.0) * knockback.0 / 100.0;
-            }
-        }
-    }
-}
+// fn knockback(
+//     hits: Query<(&RayCaster, &RayHits, &ExplosionKnockback)>,
+//     mut entities: Query<&mut LinearVelocity>,
+// ) {
+//     for (ray, hits, knockback) in &hits {
+//         for hit in hits.iter() {
+//             if let Ok(mut linear) = entities.get_mut(hit.entity) {
+//                 linear.0 += ray.direction.as_dvec3() / (hit.time_of_impact + 1.0) * knockback.0 / 100.0;
+//             }
+//         }
+//     }
+// }
