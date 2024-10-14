@@ -54,7 +54,6 @@ fn init_entities(
             Collider::cuboid(max.x - min.x, max.y - min.y, max.z - min.z),
             LockedAxes::new().lock_rotation_x().lock_rotation_y().lock_rotation_z(),
             Restitution::new(0.0),
-            SweptCcd::default(),
         ));
     }
 }
@@ -82,15 +81,23 @@ fn cleanup_colliders(
     entities: Query<&Position, With<Hitbox>>,
     mut commands: Commands,
 ) {
-    // let mut n = 0;
+    let mut n = 0;
+    let mut collider_positions = Vec::new();
     for (entity, collider) in &colliders {
-        // n += 1;
+        n += 1;
         let pos = DVec3::new(collider.center().x, collider.center().y, collider.center().z);
-        if !entities.iter().any(|p| p.distance_squared(pos) < 25.0) {
+        let block_pos = BlockPos {
+            x: pos.x as i32,
+            y: pos.y as i32,
+            z: pos.z as i32,
+        };
+        if !entities.iter().any(|p| p.distance_squared(pos) < 25.0) || collider_positions.contains(&block_pos) {
             commands.entity(entity).despawn();
+        } else {
+            collider_positions.push(block_pos);
         }
     }
-    // tracing::info!("Collider count: {n}");
+    tracing::debug!("Collider count: {n}");
 }
 
 fn delete_colliders(
@@ -111,18 +118,25 @@ fn delete_colliders(
 }
 
 fn generate_colliders(
-    entities: Query<(&Position, &EntityLayerId), With<Hitbox>>,
+    entities: Query<(&Position, &OldPosition, &EntityLayerId), (Changed<Position>, With<Hitbox>)>,
     colliders: Query<&ColliderAabb>,
     layers: Query<&ChunkLayer>,
     mut commands: Commands,
 ) {
-    let collider_positions = colliders.iter().map(|c| BlockPos {
+    let mut collider_positions = colliders.iter().map(|c| BlockPos {
         x: c.center().x as i32,
         y: c.center().y as i32,
         z: c.center().z as i32,
     }).collect::<Vec<_>>();
 
-    for (pos, layer_id) in &entities {
+    for (pos, old_pos, layer_id) in &entities {
+        if pos.x as i32 == old_pos.x as i32
+            && pos.y as i32 == old_pos.y as i32
+            && pos.z as i32 == old_pos.z as i32
+        {
+            continue;
+        }
+
         let Ok(layer) = layers.get(layer_id.0) else {
             continue;
         };
@@ -133,41 +147,51 @@ fn generate_colliders(
             pos.z as i32,
         );
 
-        let blocks = (-2..=2)
+        let positions = (-2..=2)
             .flat_map(|y| (-2..=2).flat_map(move |z| (-2..=2).map(move |x| BlockPos { x, y, z })))
             .map(|pos| pos + block_pos)
             .filter(|pos| !collider_positions.contains(pos))
-            .filter_map(|pos| layer.block(pos).map(|b| (b.state, pos)))
+            .collect::<Vec<_>>();
+
+        let blocks = positions
+            .iter()
+            .filter_map(|pos| layer.block(*pos).map(|b| (b.state, *pos)))
             .flat_map(|(block, pos)| block.collision_shapes().map(move |s| (s, pos)))
             .map(|(shape, pos)| (
                 RigidBody::Static,
                 Collider::cuboid(
-                    shape.max().x - shape.min().x - 0.01,
-                    shape.max().y - shape.min().y - 0.01,
-                    shape.max().z - shape.min().z - 0.01,
+                    shape.max().x - shape.min().x - 0.02,
+                    shape.max().y - shape.min().y - 0.02,
+                    shape.max().z - shape.min().z - 0.02,
                 ),
                 Restitution::new(0.0),
                 TransformBundle::from_transform(Transform::from_xyz(pos.x as f32 + 0.5, pos.y as f32 + 0.5, pos.z as f32 + 0.5)),
             )).collect::<Vec<_>>();
 
         commands.spawn_batch(blocks);
+
+        collider_positions.extend(positions);
     }
 }
 
 fn handle_collisions(
     mut events: EventReader<Collision>,
     mut entities: Query<&mut OnGround>,
+    colliders: Query<(), (With<Collider>, Without<Hitbox>)>,
+    mut commands: Commands,
 ) {
-    // let mut n = 0;
+    let mut n = 0;
     for Collision(contacts) in events.read() {
-        // n += 1;
+        n += 1;
         if let Ok(mut on_ground) = entities.get_mut(contacts.entity1) {
             on_ground.0 = true;
         } else if let Ok(mut on_ground) = entities.get_mut(contacts.entity2) {
             on_ground.0 = true;
+        } else if colliders.get(contacts.entity1).is_ok() && colliders.get(contacts.entity2).is_ok() {
+            commands.entity(contacts.entity2).insert(Despawned);
         }
     }
-    // tracing::info!("{n} collisions");
+    tracing::debug!("{n} collisions");
 }
 
 fn reset_on_ground(mut entities: Query<&mut OnGround>) {

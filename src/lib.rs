@@ -21,15 +21,17 @@ use valence::prelude::*;
 
 pub struct Vanilla;
 
+pub use valence;
+
 impl Plugin for Vanilla {
     fn build(&self, app: &mut App) {
         app.add_plugins(
             (
+                server_list::ServerList,
                 DefaultPlugins,
                 building::Building,
                 players::Players,
                 exit::Exit,
-                server_list::ServerList,
                 explosion::Explosion,
                 physics::Physics,
                 command::Command,
