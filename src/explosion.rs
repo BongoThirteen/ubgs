@@ -131,15 +131,19 @@ fn explode(
         let Ok(mut layer) = layers.get_mut(event.layer.0) else {
             continue;
         };
+
+        const RESOLUTION: u32 = 8;
     
-        let points = (0..15)
-            .flat_map(|x| (0..15).map(move |y| DVec3::new(-1.0 + x as f64 / 8.0, -1.0 + y as f64 / 8.0, 1.0)))
-            .chain((0..15).flat_map(|z| (0..15).map(move |y| DVec3::new(1.0, -1.0 + y as f64 / 8.0, -1.0 + z as f64 / 8.0))))
-            .chain((0..15).flat_map(|x| (0..15).map(move |y| DVec3::new(-1.0 + x as f64 / 8.0, -1.0 + y as f64 / 8.0, -1.0))))
-            .chain((0..15).flat_map(|z| (0..15).map(move |y| DVec3::new(-1.0, -1.0 + y as f64 / 8.0, -1.0 + z as f64 / 8.0))))
-            .chain((0..16).flat_map(|z| (0..16).map(move |x| DVec3::new(-1.0 + x as f64 / 8.0, 1.0, -1.0 + z as f64 / 8.0))))
-            .chain((1..14).flat_map(|z| (1..14).map(move |x| DVec3::new(-1.0 + x as f64 / 8.0, -1.0, -1.0 + z as f64 / 8.0))))
+        let points = (0..RESOLUTION - 1)
+            .flat_map(|x| (0..RESOLUTION - 1).map(move |y| DVec3::new(-1.0 + x as f64 / (RESOLUTION / 2) as f64, -1.0 + y as f64 / (RESOLUTION / 2) as f64, 1.0)))
+            .chain((0..RESOLUTION - 1).flat_map(|z| (0..RESOLUTION - 1).map(move |y| DVec3::new(1.0, -1.0 + y as f64 / (RESOLUTION / 2) as f64, -1.0 + z as f64 / (RESOLUTION / 2) as f64))))
+            .chain((0..RESOLUTION - 1).flat_map(|x| (0..RESOLUTION - 1).map(move |y| DVec3::new(-1.0 + x as f64 / (RESOLUTION / 2) as f64, -1.0 + y as f64 / (RESOLUTION / 2) as f64, -1.0))))
+            .chain((0..RESOLUTION - 1).flat_map(|z| (0..RESOLUTION - 1).map(move |y| DVec3::new(-1.0, -1.0 + y as f64 / (RESOLUTION / 2) as f64, -1.0 + z as f64 / (RESOLUTION / 2) as f64))))
+            .chain((0..RESOLUTION).flat_map(|z| (0..RESOLUTION).map(move |x| DVec3::new(-1.0 + x as f64 / (RESOLUTION / 2) as f64, 1.0, -1.0 + z as f64 / (RESOLUTION / 2) as f64))))
+            .chain((1..RESOLUTION - 1).flat_map(|z| (1..RESOLUTION - 1).map(move |x| DVec3::new(-1.0 + x as f64 / (RESOLUTION / 2) as f64, -1.0, -1.0 + z as f64 / (RESOLUTION / 2) as f64))))
             .map(|ray| ray.normalize());
+
+        const COARSENESS: f64 = 1.0;
 
         for point in points {
             commands.spawn(
@@ -154,7 +158,7 @@ fn explode(
                 let pos = point * dist + event.position;
                 if let Some(block) = layer.block([pos.x as i32, pos.y as i32, pos.z as i32]) {
                     if block.state != BlockState::AIR {
-                        power -= (0.5 + 0.3) * 0.3;
+                        power -= (0.5 + 0.3) * 0.3 * COARSENESS;
                         if power > 0.0 {
                             if block.state.to_kind() == BlockKind::Tnt {
                                 commands.spawn(TntEntityBundle {
@@ -175,8 +179,8 @@ fn explode(
                         }
                     }
                 }
-                dist += 0.3;
-                power -= 0.22500001;
+                dist += 0.3 * COARSENESS;
+                power -= 0.22500001 * COARSENESS;
             }
         }
     }

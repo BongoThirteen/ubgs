@@ -15,6 +15,7 @@ impl Plugin for Kinematics {
                     collide.before(update),
                     update,
                     gravity,
+                    drag,
                     land,
                 ),
             );
@@ -68,7 +69,7 @@ fn collide(
                 .collect::<Vec<Aabb>>()
         };
 
-        const STEP_COUNT: u32 = 16;
+        const STEP_COUNT: u32 = 8;
 
         on_ground.0 = false;
 
@@ -186,6 +187,117 @@ fn update(mut entities: Query<(&mut Position, &Velocity), Without<Client>>) {
     }
 }
 
+fn entity_physics_properties(kind: EntityKind, on_ground: bool) -> (f32, f32, f32, bool) {
+    match kind {
+        EntityKind::ARMOR_STAND
+        | EntityKind::AXOLOTL
+        | EntityKind::BAT
+        | EntityKind::CAMEL
+        | EntityKind::CAT
+        | EntityKind::CAVE_SPIDER
+        | EntityKind::CHICKEN
+        | EntityKind::COD
+        | EntityKind::COW
+        | EntityKind::CREEPER
+        | EntityKind::DOLPHIN
+        | EntityKind::DONKEY
+        | EntityKind::DROWNED
+        | EntityKind::ELDER_GUARDIAN
+        | EntityKind::ENDERMAN
+        | EntityKind::ENDERMITE
+        | EntityKind::EVOKER
+        | EntityKind::FOX
+        | EntityKind::FROG
+        | EntityKind::GHAST
+        | EntityKind::GIANT
+        | EntityKind::GLOW_SQUID
+        | EntityKind::GOAT
+        | EntityKind::GUARDIAN
+        | EntityKind::HOGLIN
+        | EntityKind::HORSE
+        | EntityKind::HUSK
+        | EntityKind::ILLUSIONER
+        | EntityKind::IRON_GOLEM
+        | EntityKind::LLAMA
+        | EntityKind::MAGMA_CUBE
+        | EntityKind::MOOSHROOM
+        | EntityKind::MULE
+        | EntityKind::OCELOT
+        | EntityKind::PANDA
+        | EntityKind::PIG
+        | EntityKind::PIGLIN
+        | EntityKind::PIGLIN_BRUTE
+        | EntityKind::PILLAGER
+        | EntityKind::POLAR_BEAR
+        | EntityKind::PUFFERFISH
+        | EntityKind::RABBIT
+        | EntityKind::RAVAGER
+        | EntityKind::SALMON
+        | EntityKind::SHEEP
+        | EntityKind::SILVERFISH
+        | EntityKind::SKELETON
+        | EntityKind::SKELETON_HORSE
+        | EntityKind::SLIME
+        | EntityKind::SNIFFER
+        | EntityKind::SNOW_GOLEM
+        | EntityKind::SPIDER
+        | EntityKind::SQUID
+        | EntityKind::STRAY
+        | EntityKind::STRIDER
+        | EntityKind::TADPOLE
+        | EntityKind::TRADER_LLAMA
+        | EntityKind::TROPICAL_FISH
+        | EntityKind::TURTLE
+        | EntityKind::VILLAGER
+        | EntityKind::VINDICATOR
+        | EntityKind::WANDERING_TRADER
+        | EntityKind::WARDEN
+        | EntityKind::WITCH
+        | EntityKind::WITHER_SKELETON
+        | EntityKind::WOLF
+        | EntityKind::ZOGLIN
+        | EntityKind::ZOMBIE
+        | EntityKind::ZOMBIE_HORSE
+        | EntityKind::ZOMBIE_VILLAGER
+        | EntityKind::ZOMBIFIED_PIGLIN => if on_ground {
+            (0.08, 0.02, 0.454, false)
+        } else {
+            (0.08, 0.02, 0.09, false)
+        },
+        EntityKind::ITEM | EntityKind::FALLING_BLOCK | EntityKind::TNT => (0.04, 0.02, 0.02, false),
+        EntityKind::MINECART
+        | EntityKind::CHEST_MINECART
+        | EntityKind::FURNACE_MINECART
+        | EntityKind::SPAWNER_MINECART
+        | EntityKind::COMMAND_BLOCK_MINECART
+        | EntityKind::TNT_MINECART => (0.04, 0.05, 0.05, false),
+        EntityKind::BOAT | EntityKind::CHEST_BOAT => (0.04, 0.0, 0.10, false),
+        EntityKind::EGG | EntityKind::SNOWBALL | EntityKind::ENDER_PEARL => (0.03, 0.01, 0.01, true),
+        EntityKind::POTION => (0.05, 0.01, 0.01, true),
+        EntityKind::EXPERIENCE_BOTTLE => (0.07, 0.01, 0.01, true),
+        EntityKind::EXPERIENCE_ORB => (0.03, 0.02, 0.02, false),
+        EntityKind::FISHING_BOBBER => (0.03, 0.08, 0.08, false),
+        EntityKind::LLAMA_SPIT => (0.06, 0.01, 0.01, true),
+        EntityKind::ARROW | EntityKind::TRIDENT => (0.05, 0.01, 0.01, true),
+        EntityKind::FIREBALL
+        | EntityKind::SMALL_FIREBALL
+        | EntityKind::WITHER_SKULL
+        | EntityKind::DRAGON_FIREBALL => (0.10, 0.05, 0.05, false),
+        _ => (0.0, 0.0, 0.0, false),
+    }
+}
+
+fn drag(
+    mut entities: Query<(&mut Velocity, &OnGround, &EntityKind), Without<Client>>,
+) {
+    for (mut velocity, on_ground, &kind) in &mut entities {
+        let (_, _, drag, _) = entity_physics_properties(kind, on_ground.0);
+
+        velocity.x *= 1.0 - drag;
+        velocity.z *= 1.0 - drag;
+    }
+}
+
 fn gravity(
     mut entities: Query<(&mut Velocity, &OnGround, &NoGravity, &EntityKind), Without<Client>>,
 ) {
@@ -194,98 +306,7 @@ fn gravity(
             continue;
         }
 
-        let (acceleration, drag, drag_applied_before) = match kind {
-            EntityKind::AXOLOTL
-            | EntityKind::BAT
-            | EntityKind::CAMEL
-            | EntityKind::CAT
-            | EntityKind::CAVE_SPIDER
-            | EntityKind::CHICKEN
-            | EntityKind::COD
-            | EntityKind::COW
-            | EntityKind::CREEPER
-            | EntityKind::DOLPHIN
-            | EntityKind::DONKEY
-            | EntityKind::DROWNED
-            | EntityKind::ELDER_GUARDIAN
-            | EntityKind::ENDERMAN
-            | EntityKind::ENDERMITE
-            | EntityKind::EVOKER
-            | EntityKind::FOX
-            | EntityKind::FROG
-            | EntityKind::GHAST
-            | EntityKind::GIANT
-            | EntityKind::GLOW_SQUID
-            | EntityKind::GOAT
-            | EntityKind::GUARDIAN
-            | EntityKind::HOGLIN
-            | EntityKind::HORSE
-            | EntityKind::HUSK
-            | EntityKind::ILLUSIONER
-            | EntityKind::IRON_GOLEM
-            | EntityKind::LLAMA
-            | EntityKind::MAGMA_CUBE
-            | EntityKind::MOOSHROOM
-            | EntityKind::MULE
-            | EntityKind::OCELOT
-            | EntityKind::PANDA
-            | EntityKind::PIG
-            | EntityKind::PIGLIN
-            | EntityKind::PIGLIN_BRUTE
-            | EntityKind::PILLAGER
-            | EntityKind::POLAR_BEAR
-            | EntityKind::PUFFERFISH
-            | EntityKind::RABBIT
-            | EntityKind::RAVAGER
-            | EntityKind::SALMON
-            | EntityKind::SHEEP
-            | EntityKind::SILVERFISH
-            | EntityKind::SKELETON
-            | EntityKind::SKELETON_HORSE
-            | EntityKind::SLIME
-            | EntityKind::SNIFFER
-            | EntityKind::SNOW_GOLEM
-            | EntityKind::SPIDER
-            | EntityKind::SQUID
-            | EntityKind::STRAY
-            | EntityKind::STRIDER
-            | EntityKind::TADPOLE
-            | EntityKind::TRADER_LLAMA
-            | EntityKind::TROPICAL_FISH
-            | EntityKind::TURTLE
-            | EntityKind::VILLAGER
-            | EntityKind::VINDICATOR
-            | EntityKind::WANDERING_TRADER
-            | EntityKind::WARDEN
-            | EntityKind::WITCH
-            | EntityKind::WITHER_SKELETON
-            | EntityKind::WOLF
-            | EntityKind::ZOGLIN
-            | EntityKind::ZOMBIE
-            | EntityKind::ZOMBIE_HORSE
-            | EntityKind::ZOMBIE_VILLAGER
-            | EntityKind::ZOMBIFIED_PIGLIN => (0.08, 0.02, false),
-            EntityKind::ITEM | EntityKind::FALLING_BLOCK | EntityKind::TNT => (0.04, 0.02, false),
-            EntityKind::MINECART
-            | EntityKind::CHEST_MINECART
-            | EntityKind::FURNACE_MINECART
-            | EntityKind::SPAWNER_MINECART
-            | EntityKind::COMMAND_BLOCK_MINECART
-            | EntityKind::TNT_MINECART => (0.04, 0.05, false),
-            EntityKind::BOAT | EntityKind::CHEST_BOAT => (0.04, 0.0, false),
-            EntityKind::EGG | EntityKind::SNOWBALL | EntityKind::ENDER_PEARL => (0.03, 0.01, true),
-            EntityKind::POTION => (0.05, 0.01, true),
-            EntityKind::EXPERIENCE_BOTTLE => (0.07, 0.01, true),
-            EntityKind::EXPERIENCE_ORB => (0.03, 0.02, false),
-            EntityKind::FISHING_BOBBER => (0.03, 0.08, false),
-            EntityKind::LLAMA_SPIT => (0.06, 0.01, true),
-            EntityKind::ARROW | EntityKind::TRIDENT => (0.05, 0.01, true),
-            EntityKind::FIREBALL
-            | EntityKind::SMALL_FIREBALL
-            | EntityKind::WITHER_SKULL
-            | EntityKind::DRAGON_FIREBALL => (0.10, 0.05, false),
-            _ => (0.0, 0.0, false),
-        };
+        let (acceleration, drag, _, drag_applied_before) = entity_physics_properties(kind, on_ground.0);
 
         let new_velocity = if drag_applied_before {
             velocity.0.y * (1. - drag) - acceleration * 20.

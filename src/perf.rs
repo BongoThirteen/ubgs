@@ -3,7 +3,6 @@ use std::{collections::VecDeque, time::{Duration, Instant}};
 
 use valence::prelude::*;
 use bevy::prelude::*;
-use bevy_time::TimePlugin;
 use tracing::info;
 
 pub struct Perf;

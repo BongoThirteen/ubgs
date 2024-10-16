@@ -22,6 +22,7 @@ use valence::prelude::*;
 pub struct Vanilla;
 
 pub use valence;
+pub use bevy;
 
 impl Plugin for Vanilla {
     fn build(&self, app: &mut App) {
