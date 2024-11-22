@@ -40,7 +40,7 @@ impl NetworkCallbacks for MyCallbacks {
             max_players: shared.max_players() as i32,
             player_sample: self.0.lock().unwrap().clone(),
             description: "BongoThirteen's Experimental Server".color(Color::DARK_AQUA),
-            favicon_png: include_bytes!("../valence/assets/logo-64x64.png"),
+            favicon_png: [],
             version_name: ("Valence ".color(Color::GOLD) + MINECRAFT_VERSION.color(Color::RED))
                 .to_legacy_lossy(),
             protocol: handshake_data.protocol_version,
