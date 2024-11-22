@@ -22,15 +22,19 @@ ubgs = { git = "https://github.com/BongoThirteen/ubgs.git" }
 Then, write this in your `src/main.rs`:
 ```rust
 use ubgs::Vanilla;
+use ubgs::save::Save;
 use ubgs::prelude::*;
 
 fn main() {
   App::new()
+    .add_plugins(Save) # important that this goes first
     .add_plugins(Vanilla)
     .run();
 }
 ```
-Finally, run the code with `cargo run` and connect with your Minecraft-compatible client of choice to `localhost`.
+Finally, run the code with `cargo run --release` and connect with your version 1.20.1 Minecraft-compatible client of choice to `localhost`.
+Make sure you put a Minecraft world in the `world` folder wherever you run the server, and back it up as the server will save chunks.
+The code may take a long time to compile and you may need to install some [dependencies](https://github.com/bevyengine/bevy/blob/main/docs/linux_dependencies.md) depending on your OS.
 
 # Licensing
 
