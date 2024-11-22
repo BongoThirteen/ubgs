@@ -11,6 +11,7 @@ However, at the moment there are many bugs and incomplete features.
 # Getting Started
 
 Currently no application binaries are provided, so just create a new Rust project and import this repository.
+First, install Rust from [rustup.rs](https://rustup.rs) and create a new project.
 ```bash
 cargo new blockgame
 cd blockgame
