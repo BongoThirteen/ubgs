@@ -28,7 +28,7 @@ use ubgs::prelude::*;
 
 fn main() {
   App::new()
-    .add_plugins(Save) # important that this goes first
+    .add_plugins(Save) // important that this goes first
     .add_plugins(Vanilla)
     .run();
 }
